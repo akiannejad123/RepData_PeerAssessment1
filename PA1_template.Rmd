@@ -1,25 +1,263 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Untitled"
+output: html_document
+
 ---
 
 
-## Loading and preprocessing the data
+The first step in this assignment was to unzip and read in the .csv file and unzip file and read it into a dataframe
+```{r setup}
+knitr::opts_chunk$set(message = TRUE, warning = TRUE)
+require("knitr")
+library(knitr)
+#if the proceeding libraries are not installed to your device uncomment the next thre lines.
+#install.packages("tidyverse)
+#install.packages("data.table")
+#install.packages("curl")
+library(tidyverse)
+library(data.table)
+library(curl)
+library(utils)
+##Downloads the zip file and unzips it
+#setwd("./RepData_PeerAssessment1/")
+#knit2html("report.Rmd", "report.html")
+if(!dir.exists("./RepData_PeerAssessment1")){dir.create("./RepData_PeerAssessment1")}
+#Here are the data for the project:
+
+if(!file.exists("activity.csv")){unzip(zipfile="./RepData_PeerAssessment1/activity.zip",exdir="./RepData_PeerAssessment1")}
+```
 
 
 
-## What is mean total number of steps taken per day?
+```{r activity_file}
+Activity_data <- read.csv("activity.csv", header=TRUE)
+Activity_dim <-dim(Activity_data)
+Activity_data_NA_count <-Activity_data%>%
+  summarize(sum(is.na(steps)))
+```
+There are currently `r Activity_dim[1]`  observations and `r Activity_dim[2]` variables with 
+`r Activity_data_NA_count[1]` missing variables. 
+
+So the first question is what is mean per day ? To Answer this question first we have to insert
+the days for the week into the dataframe. We will call this variable `Day_of_week` and use a lubridate 
+function that is available in the tidyverse package. If you are not familiar with this package I would 
+highly recommend familiarizing yourself with it. 
+
+```{r add_day_of_week}
+Activity_data<-Activity_data%>%
+    mutate(date=(as.Date(as.POSIXct( paste(date),format="%Y-%m-%d", tz="GMT"))))
+Activity_data$Day_of_week <-as.factor(weekdays(as.Date(Activity_data$date)))
+```
+Did this work? Let us check:
+```{r print_DOW}
+head(Activity_data)
+```
+
+Now we need to evaluate the mean of the steps by day of the week. This can be performed with `mutate`, `summary` and `mean'
+```{r summary_by_day}
+Activity_data<-data.frame(Activity_data)
+Summary_by_Day <-Activity_data%>%
+  group_by(Day_of_week)%>%
+  summarize(Mean_of_steps=(mean(na.omit(steps))))
+
+Summary_by_Day <-data.frame(Summary_by_Day)
+```
 
 
 
-## What is the average daily activity pattern?
+What was the output? Let's print it.
+```{r print_summary_by_day}
+print(Summary_by_Day)
+```
+
+Ugh! What is with the Days of the week? Oh Friday is the most steps. We can sort it by day to give use an idea from the begining of the week how many and how it changes over the days. To do this we will have to assign levels to the days of the weeks. I will start with Monday as the first day of the week and go from there,  Monday>Tuesday>...>Sunday.  And what is with those significant figures, lets change that to only 3. We will  change the significant figures by using `digits` in the options of the Base R package. 
+
+```{r change_sigfigs}
+options(pillar.sigfig=3)
+
+  Summary_by_Day$Day_of_week <- factor(Summary_by_Day$Day_of_week, levels= c("Monday", 
+    "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+ Summary_by_Day_v2<- Summary_by_Day[order(Summary_by_Day$Day_of_week),]
+ Summary_by_Day_v2 <-data.frame(Summary_by_Day_v2)
+ options(digits = 3)
+ print(Summary_by_Day_v2) 
+```
+
+### What are the total number of steps per day? This is a different question from the mean on each day, so we will group `steps` by `Date`.
+
+```{r total_steps_taken}
+Summary_by_Date <-Activity_data%>%
+  group_by(date)%>%
+  summarize("Total_Steps_Taken"=sum(na.omit(steps)))
+head(Summary_by_Date)
+```
+
+
+### Make a histogram of the total number of steps taken each day. 
+For what it is worth the differences between a histogram is based on the frequency that an event has occured making it a statistical graph; whereas, a barchart is simply a visualization or graph of the x and y components, (`Date` vs `Total_Steps_Taken` in our case). Before we contruct the histogram there is one important question that needs be answered. I don't like assigning values arbitrarily, so I investigated. 
+*How to determine many breaks do we set?* The number of breaks will be assigned by R if we do not use the `breaks=` function. To make a good estimation we should have some background knowledge. We are going to use the The Freedman-Diaconis rule[1] instead of Sturge's Rule.  The bin-width is set to h=2×IQR×n^−1/3. So the number of bins is (max−min)/h, where n is the number of observations, max is the maximum value and min is the minimum value.IQR stands for the 
+interquantile range, basically -1 standard deviation to 1 Standard Deviation in length:
+```{r understanding_bin_width}
+Steps_IQR <-IQR(Summary_by_Date$Total_Steps_Taken)
+h= 2*(Steps_IQR)*(Activity_dim[1])^(-1/3)
+max_steps <-as.numeric(max(Summary_by_Date$Total_Steps_Taken, remove.na=TRUE))
+min_steps <-as.numeric(min(Summary_by_Date$Total_Steps_Taken, remove.na=TRUE))
+number_of_bins <-((max_steps-min_steps)/h)
+
+mean_steps <-mean(Summary_by_Date$Total_Steps_Taken, remove.na=TRUE)
+
+median_steps <-median(Summary_by_Date$Total_Steps_Taken, remove.na=TRUE)
+```
+The IQR for our data is `r Steps_IQR` and the number of observations n=`r Activity_dim[1]`, so that the h of the
+bin-width is `r h`, the minimun number of steps is `r min_steps` and the Max number of steps is `r max_steps`, finally we arive at the number of bins `r number_of_bins`, but we will round to 46. 
+
+I am also going to add in the median(`r median_steps`) in red and the mean(`r  mean_steps`) in blue to this graph. 
+```{r plot_Summary, message=TRUE, warning=TRUE}
+p<-ggplot(Summary_by_Date, aes(x=Total_Steps_Taken))+ geom_histogram(bins = 46, color="green",fill="white")
+
+p+geom_rug()+geom_vline(aes(xintercept=mean_steps), color="blue")+geom_vline(aes(xintercept=median_steps), color="red")
+```
+###Calculate and report the mean and median of the total number of steps taken per day
+```{r  mean_of_steps} 
+Activity_data_means<-Activity_data%>%
+  group_by(Day_of_week)%>%
+  summarize("Mean_by_Day"=mean(na.omit(steps)))
+  Activity_data_means$Day_of_week <- factor(Activity_data_means$Day_of_week, levels= c("Monday", 
+    "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+Activity_data_means<- Summary_by_Day[order(Activity_data_means$Day_of_week),]
+print(Activity_data_means)
+```
+
+```{r Median_of_steps}
+Activity_data_median<-Activity_data%>%
+  group_by(Day_of_week)%>%  
+  summarize("Median_by_Day"=median(na.omit(steps)))
+print(Activity_data_median)
+```
+### Make a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis). To answer this question first we will need to group `steps` by `Day_of_week` and `interval`.
+```{r Average_by_interval}
+Average_Number_of_steps_by_interval<-Activity_data%>%
+  group_by(Day_of_week, interval)%>%
+  summarize(Mean_by_interval= mean(na.omit(steps)))
+head(Average_Number_of_steps_by_interval)
+```
+Then we will plot the interval on the x-axis and steps on the y axis
+```{r plot_steps_over_intervals}
+Steps_over_interval<-ggplot(Average_Number_of_steps_by_interval, aes(x=interval,y= Mean_by_interval))+
+  geom_line(col="purple")
+  #geom_point(data=Max_number_of_steps, aes(interval, Max_steps, na.omit=TRUE))
+
+Steps_over_interval+labs(x="Interval", y="Mean number of Steps")
+```
 
 
 
-## Imputing missing values
+```{r max_num_of_steps}
+Max_number_of_steps<-Activity_data%>%
+  group_by(Day_of_week)%>%
+  slice(which.max(steps))%>%
+  select(Day_of_week,interval,steps)
+print(Max_number_of_steps)
+```
+
+
+### Imputing missing values
+"Note that there are a number of days/intervals where there are missing values (coded as \color{red}{\verb|NA|}NA). The presence of missing days may introduce bias into some calculations or summaries of the data." 
+Perhaps it will introduce bias into some of the calculations. However, a person is not up 24 hours a day most Americans sleep anywhere from 6 to 8 a night, some nights less some nights more. Because we do not know the exact time frame on any given day when these NA occur we will need to graph the interval of each date on the x-axis and number of steps on the y-axis. Then check the gaps. If the gaps are at a consistant interval period then its most
+likely that the person sleeps at this time.  But first lets see how many NA's are in the data set.
+
+
+```{r number_of_NAs}
+how_many_NAs <-Activity_data%>%
+  summarize(sum(is.na(steps)))
+
+```
+So, there are `r how_many_NAs`NAs in this data set.Is that alot or alittle? We have no frame of reference. So lets plot the data by `Day` and see how what width of space it gives us.
+```{r plot_day_remove_NA}
+q <-ggplot(Activity_data, aes(x=interval, y=steps, na.rm=TRUE))
+q+geom_line(aes(color=factor(Day_of_week)))
+```
 
 
 
-## Are there differences in activity patterns between weekdays and weekends?
+So, everyday for from 0 to 475 minutes there is no data. I wonder how many hours that is. 
+
+```{r}
+number_of_hours <-475/60
+```
+
+The output was `r number_of_hours` in all the NAs observations and plot it.
+
+
+```{r add_zeros_where_NAs_are}
+
+Activity_data$steps[is.na(Activity_data$steps)]<-0
+Activity_data_without_NAs <-data.frame(Activity_data)
+```
+
+```{r plot_graph_with_zeros}
+q <-ggplot(Activity_data, aes(x=interval, y=steps, na.rm=TRUE))
+q+geom_line(aes(color=factor(Day_of_week)))
+```
+
+ Normally, I don't have a problem filling in missing data, and I think its important to filling in missing data if the cause for its asbence is known. But this demonstrates that at a certain part of day there is no data, most likely sleeping, and getting up to use the bathroom, a drink of water, or other noctirnal activities.  BUT, I will devise a strategy to address this. In this scenerio, I filled the NAs with 0's.  
+
+However, leaving the data blank is not optional.
+
+The strategy does not need to be sophisticated. Create a new dataset that is equal to the original dataset but with the missing data filled in.
+```{r print_NAs_removed}
+Activity_data_without_NAs<-data.frame(Activity_data)
+head(Activity_data_without_NAs)
+```
+Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. Do these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+```{r without_NAs_means}
+Activity_data_without_NAs$Day_of_week<-factor(Activity_data_without_NAs$Day_of_week, levels= c("Monday", 
+    "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+Activity_data_without_NAs_means <-Activity_data_without_NAs%>%
+  group_by(Day_of_week)%>%
+  summarize("New_Mean"=mean(steps))
+Activity_data_without_NAs_means<-Activity_data_without_NAs_means[order(Activity_data_without_NAs_means$Day_of_week),]
+
+print(Activity_data_without_NAs_means)
+```
+
+```{r median_without_NA}
+Activity_data_without_NAs_median <-Activity_data_without_NAs%>%
+  group_by(Day_of_week)%>%
+   summarize("New_Median"=median(steps))
+print(Activity_data_without_NAs_median)
+```
+By only adding zeros this does not alter the median at all and only decreases the mean (a value more sensitive to outliers than the median) by much. It also uses a valid explaination as to the lack of data rather than assigning the mean or median arbitrarily.
+
+
+### Lastly, we have ask outselves is there differences in activity patterns between weekdays and weekends?
+
+We will acheive this by assigning Weekday and Weekend factor to the the approriate days. In North America the weekend is Saturday and Sunday, the weekdays are all other days. We will call this factor `Weekday_only`.
+
+```{r Weekday_vs_weekend}
+Weekend_only <-c("Saturday", "Sunday")
+
+                                                                                                                 
+Activity_data$Weekend_vs_Weekday <-factor((Activity_data$Day_of_week %in% Weekend_only), levels=c(TRUE,FALSE), labels=c("Weekend","Weekday"))                                                                    
+
+Activity_data_Weekend_vs_Weekday <-Activity_data%>%
+  group_by(Weekend_vs_Weekday, interval)%>%
+  summarize("Mean_of_Steps_Weekend_vs_Week_day"=mean(na.omit(steps)))
+```
+Now we have set the levels, let's plot this bad boy.
+
+```{r plot_Weekends_vs_Weekdays}
+plot3<-ggplot(Activity_data_Weekend_vs_Weekday, aes(interval, Mean_of_Steps_Weekend_vs_Week_day, color=Weekend_vs_Weekday))+
+  geom_line()
+
+plot3+facet_grid(rows=vars(Weekend_vs_Weekday))+labs(y="Mean number of Steps", x="Interval")
+
+```
+
+
+These graphs show that the majority of steps during the week occur a specific time of day whereas on the weekend the steps are more spread out. Welp, that's about it not much to add and this is not very exciting. But there it is.
+ 
+ 
+
+ 
